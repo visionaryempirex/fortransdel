@@ -1,125 +1,421 @@
-import React, { useState } from "react";
-import {
-  FiSettings,
-  FiStar,
-  FiMessageSquare,
-  FiKey,
-  FiGlobe,
-  FiPackage,
-  FiDollarSign,
-  FiUsers,
-  FiGift,
-} from "react-icons/fi";
-import "./Settings.css";
-import AccountSection from "./AllSettingsPages/Account/Account";
-import PrivacySettings from "./AllSettingsPages/Privacy/Privacy";
-import DefaultSettings from "./AllSettingsPages/DefaultSetting/DefaultSetting";
-import RatingSettings from "./AllSettingsPages/RatingSetting/RatingSetting";
-import { UserAuthCheck } from "../UserAuthCheck/UserAuthCheck";
-
-import PageTitle from "../../../layouts/PageTitle";
-
-const AccountSettings = () => {
-  const [selectedMenu, setSelectedMenu] = React.useState("Settings");
-
-  function renderSection() {
-    if (selectedMenu === "Settings") {
-      return <AccountSection />;
-    } else if (selectedMenu === "Privacy & GDPR") {
-      return <PrivacySettings />;
-    } else if (selectedMenu === "Default Setting") {
-      return <DefaultSettings />;
-    } else if (selectedMenu === "Rating Settings") {
-      return <RatingSettings />;
-    } else {
-      return <div>Select a menu item to view details.</div>;
+const UserModel = require("../../Model/UserSchema/UserSchema");
+const { sendOTP } = require("../../utils/mailer"); 
+const bcrypt = require("bcrypt");
+async function RegisterUser(req, res) {
+  try {
+    // Check if the email already exists
+    const {
+      userId,
+      userName,
+      companyName,
+      companyEmail,
+      companyLocation,
+      companyEmailPassword,
+      Status,
+      Limit,
+      Plan,
+      CreatedInterviews
+    } = req.body;
+    const existingUser = await UserModel.findOne({
+      companyEmail: req.body.companyEmail,
+    });
+    if (existingUser) {
+      return res.status(400).json({ Message: "Email already exists" });
     }
+
+    // If email doesn't exist, create a new user
+    // const user = await UserModel.create(req.body);
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(companyEmailPassword, salt);
+
+    const newUser = new UserModel({
+      userId: userId,
+      userName: userName,
+      companyName: companyName,
+      companyEmail: companyEmail,
+      companyLocation: companyLocation,
+      companyEmailPassword: hashedPassword,
+      Status: Status,
+      Limit: Limit,
+      Plan: Plan,
+      CreatedInterviews:CreatedInterviews
+    });
+
+    await newUser.save();
+    return res
+      .status(200)
+      .json({ Message: "User Registered Successfully", newUser });
+  } catch (e) {
+    console.error("Error:", e);
+    return res.status(500).json({ Message: "Server Problem" });
   }
+}
+// async function LoginUser(req, res) {
+//   try {
+//     const { companyEmail, companyEmailPassword } = req.body;
 
-  const menuItems = [
-    { icon: <FiSettings />, label: "Settings" },
-    { icon: <FiStar />, label: "Privacy & GDPR" },
-    { icon: <FiMessageSquare />, label: "Default Setting" },
-    { icon: <FiKey />, label: "Rating Settings" },
-    { icon: <FiGlobe />, label: "Custom Domains" },
-    { icon: <FiPackage />, label: "Integrations" },
-    { icon: <FiKey />, label: "API Keys" },
-    { icon: <FiPackage />, label: "Webhooks" },
-    { icon: <FiDollarSign />, label: "Plan & Usage" },
-    { icon: <FiDollarSign />, label: "Billing" },
-    { icon: <FiUsers />, label: "Team Management" },
-    { icon: <FiPackage />, label: "Upgrade" },
-    { icon: <FiGift />, label: "Referral Program" },
-  ];
+//     // Check if the user exists
+//     const user = await UserModel.findOne({ companyEmail });
 
-  return (
-    <div>
-      <PageTitle activeMenu="Settings" motherMenu="Home" />
+//     if (!user) {
+//       return res.status(404).json({ Message: "User does not exist" });
+//     }
 
-      <div className="Account-settings-container">
-        <div className="Account-settings-content">
-          <div className="Account-settings-main">
-            <div className="Account-settings-menu">
-              <nav>
-                {menuItems.map((item) => (
-                  <button
-                    key={item.label}
-                    onClick={() => setSelectedMenu(item.label)}
-                    className={`Account-menu-item ${
-                      selectedMenu === item.label ? "Account-active" : ""
-                    }`}
-                  >
-                    <span className="Account-menu-icon">{item.icon}</span>
-                    {item.label}
-                  </button>
-                ))}
-              </nav>
-            </div>
-            <div id="SectionsContainer" className="Account-settings-details">
-              {renderSection()}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+//     // Compare hashed passwords
+//     const isPasswordValid = await bcrypt.compare(
+//       companyEmailPassword,
+//       user.companyEmailPassword
+//     );
+
+//     if (!isPasswordValid) {
+//       return res.status(401).json({ Message: "Invalid email or password" });
+//     }
+
+//     // Successful login
+//     res.status(200).json({ Message: "Login successful", user });
+//   } catch (error) {
+//     console.error("Error:", error);
+//     res.status(500).json({ Message: "Server problem" });
+//   }
+// }
+
+
+
+
+async function LoginUser(req, res) {
+  try {
+    const { companyEmail, companyEmailPassword } = req.body;
+
+    const user = await UserModel.findOne({ companyEmail });
+    if (!user) {
+      return res.status(404).json({ Message: "User does not exist" });
+    }
+
+    const isPasswordValid = await bcrypt.compare(companyEmailPassword, user.companyEmailPassword);
+    if (!isPasswordValid) {
+      return res.status(401).json({ Message: "Invalid email or password" });
+    }
+
+    // Generate OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit
+    const otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 mins from now
+
+    // Save OTP and expiry to user
+    user.otp = otp;
+    user.otpExpiry = otpExpiry;
+    await user.save();
+
+    // Send OTP via email
+    await sendOTP(companyEmail, otp);
+
+    return res.status(200).json({
+      Message: "OTP sent to your email",
+      userId: user._id,
+    });
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ Message: "Server problem" });
+  }
+}
+
+
+
+async function VerifyOTP(req, res) {
+  try {
+    const { userId, otp } = req.body;
+
+    const user = await UserModel.findById(userId);
+    if (!user || user.otp !== otp || user.otpExpiry < new Date()) {
+      return res.status(400).json({ Message: "Invalid or expired OTP" });
+    }
+
+    // OTP is valid — clear it and allow login
+    user.otp = null;
+    user.otpExpiry = null;
+    await user.save();
+
+    return res.status(200).json({ Message: "OTP verified. Login successful", user });
+  } catch (error) {
+    console.error("Error verifying OTP:", error);
+    res.status(500).json({ Message: "Server problem" });
+  }
+}
+
+
+
+
+async function GetUsers(req, res) {
+  try {
+    // Fetch all interviews from the database
+    const Users = await UserModel.find();
+
+    // Return the fetched interviews in the response
+    return res.status(200).json({
+      Message: "All Interviews Fetched Successfully",
+      Users,
+    });
+  } catch (e) {
+    console.error("Error:", e);
+    return res.status(500).json({ Message: "Server Problem" });
+  }
+}
+
+
+async function UpdateUser(req, res) {
+  try {
+    const { _id, ...updateData } = req.body; // Extract ID and other fields from the request body
+
+    // Validate ID
+    if (!_id) {
+      return res.status(400).json({ Message: "User ID is required" });
+    }
+
+    // Update the User with new data
+    const updatedUser = await UserModel.findByIdAndUpdate(
+      _id,
+      { $set: updateData },
+      { new: true } // Return the updated document
+    );
+
+    // Check if the User was found and updated
+    if (!updatedUser) {
+      return res.status(404).json({ Message: "User not found" });
+    }
+
+    return res.status(200).json({
+      Message: "User updated successfully",
+      updatedUser, // Return the updated document
+    });
+  } catch (error) {
+    console.error("Error updating User:", error);
+    return res
+      .status(500)
+      .json({ Message: "Server problem", Error: error.message });
+  }
+}
+
+const updateFullUser = async (req, res) => {
+  try {
+    const { _id, companyEmailPassword, ...updateData } = req.body;
+
+    // Validate ID
+    if (!_id) {
+      return res.status(400).json({ Message: "User ID is required" });
+    }
+
+    // Check if the user exists
+    const existingUser = await UserModel.findById(_id);
+    if (!existingUser) {
+      return res.status(404).json({ Message: "User not found" });
+    }
+
+    // If password is provided, hash it
+    if (companyEmailPassword) {
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(companyEmailPassword, salt);
+      updateData.companyEmailPassword = hashedPassword; // Add the hashed password to the update data
+    }
+
+    // Update the entire user object with the provided data
+    const updatedUser = await UserModel.findByIdAndUpdate(
+      _id,
+      { $set: updateData }, // Using $set to apply changes only to the provided fields
+      { new: true } // Return the updated document
+    );
+
+    // Return success response
+    return res.status(200).json({
+      Message: "User updated successfully",
+      user: updatedUser,
+    });
+  } catch (error) {
+    console.error("Error updating user:", error);
+    return res.status(500).json({
+      Message: "Failed to update user",
+      Error: error.message,
+    });
+  }
 };
 
-export default AccountSettings;
 
-I have a main parent component called Account Settings. Now I want to create a child component for Custom Branding.
+async function GetUserById(req, res) {
+  try {
+    const { userId } = req.body; // Extract userId from request body
 
-Requirements:
-Custom Branding should be a new component.
+    // Validate userId
+    if (!userId) {
+      return res.status(400).json({ Message: "User ID is required" });
+    }
 
-Add a menu item for it in the sidebar/menu (where other account settings items are listed).
+    // Find the user by userId field
+    const User = await UserModel.findOne({ userId });
 
-In the CustomBranding component:
+    // Check if candidate exists
+    if (!User) {
+      return res.status(404).json({ Message: "User not found" });
+    }
 
-Add a heading: "Custom Brandings"
+    return res.status(200).json({
+      Message: "User found successfully",
+      User, // Return the found user data
+    });
+  } catch (error) {
+    console.error("Error fetching user:", error);
+    return res.status(500).json({ Message: "Server problem", Error: error.message });
+  }
+}
 
-Add a description below the heading:
-"Create themes with a custom logo, button colors, and company name to use on your interviews."
+async function GetUserByEmail(req, res) {
+  try {
+    const { companyEmail } = req.body; // Extract companyEmail from request body
 
-Add a button: "Create New Branding"
+    // Validate companyEmail
+    if (!companyEmail) {
+      return res.status(400).json({ Message: "companyEmail is required" });
+    }
 
-On clicking this button, show a popup/modal.
+    // Find the user by companyEmail field
+    const user = await UserModel.findOne({ companyEmail });
 
-In the popup, allow the user to:
+    // Check if user exists
+    if (!user) {
+      return res.status(404).json({ Message: "User not found" });
+    }
 
-Enter branding information (company name, button color, etc.)
+    return res.status(200).json({
+      Message: "User found successfully",
+      User: user, // Return the found user data
+    });
+  } catch (error) {
+    console.error("Error fetching user:", error);
+    return res.status(500).json({ Message: "Server problem", Error: error.message });
+  }
+}
 
-Upload a logo image
-(Design the popup UI exactly like the one I previously provided in the image)
+async function GetUserByUserId(req, res) {
+  try {
+    const { userId } = req.body; // Extract companyEmail from request body
 
-I have already shared my backend setup (user controller, schema, and model). I want to save the branding data for the current logged-in user in the backend.
+    // Validate companyEmail
+    if (!userId) {
+      return res.status(400).json({ Message: "companyEmail is required" });
+    }
 
-Deliverables:
-Complete code for the parent component (Account Settings) with the new menu item.
+    // Find the user by companyEmail field
+    const user = await UserModel.findOne({ userId });
 
-Complete code for the child component (Custom Branding) with full UI and functionality.
+    // Check if user exists
+    if (!user) {
+      return res.status(404).json({ Message: "User not found" });
+    }
 
-Integration with the backend to save the branding data for the logged-in user.
+    return res.status(200).json({
+      Message: "User found successfully",
+      User: user, // Return the found user data
+    });
+  } catch (error) {
+    console.error("Error fetching user:", error);
+    return res.status(500).json({ Message: "Server problem", Error: error.message });
+  }
+}
 
 
 
+async function DeleteUser(req, res) {
+  try {
+    const { _id } = req.body; // Get the ID from the request body
+
+    // Validate ID
+    if (!_id) {
+      return res.status(400).json({ Message: "User ID is required" });
+    }
+
+    // Log the ID for debugging
+    console.log("Deleting User with ID:", _id);
+
+    // Delete the specific invite by ID
+    const deletedUser = await UserModel.findByIdAndDelete(_id);
+
+    // Check if the User was found and deleted
+    if (!deletedUser) {
+      return res.status(404).json({ Message: "Invite not found" });
+    }
+
+    return res.status(200).json({
+      Message: "User deleted successfully",
+      deletedUser: deletedUser,
+    });
+  } catch (error) {
+    console.error("Error deleting Invite:", error);
+    return res
+      .status(500)
+      .json({ Message: "Server problem", Error: error.message });
+  }
+  }
+
+module.exports = { RegisterUser, LoginUser, GetUsers, UpdateUser , DeleteUser , updateFullUser ,GetUserById, GetUserByEmail, GetUserByUserId , VerifyOTP };
+
+
+controllers
+
+const mongoose = require("mongoose");
+
+// Define the User Schema
+const userSchema = new mongoose.Schema(
+  {
+    userId: {
+      type: String,
+    },
+    userName: {
+      type: String,
+    },
+    companyName: {
+      type: String,
+    },
+    companyEmail: {
+      type: String,
+    },
+    companyLocation: {
+      type: String,
+    },
+    companyEmailPassword: {
+      type: String,
+    },
+    otp: { type: String },
+    otpExpiry: { type: Date },
+    Status: { type: String },
+    Limit: { type: Number },
+    Plan: { type: String },
+    CreatedInterviews: { type: Number }
+  },
+
+  {
+    timestamps: true,
+  }
+);
+
+module.exports = mongoose.model("User", userSchema);
+
+
+model
+
+
+const express = require("express");
+const Router = express.Router();
+const userController = require("../../Controller/UserControllers/UserController");
+
+Router.post("/Register", userController.RegisterUser);
+Router.post("/Login", userController.LoginUser);
+Router.get("/GetUsers", userController.GetUsers);
+Router.put("/UpdateUser", userController.UpdateUser);
+Router.post("/DeleteUser", userController.DeleteUser);
+Router.put("/UpdateFullUser", userController.updateFullUser);
+Router.post("/GetUserById", userController.GetUserById);
+Router.post("/GetUserByEmail", userController.GetUserByEmail);
+Router.post("/GetUserByUserId", userController.GetUserByUserId);
+Router.post("/VerifyOTP", userController.VerifyOTP);
+
+module.exports = Router;
+
+
+router
