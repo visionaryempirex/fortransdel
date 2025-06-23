@@ -1,104 +1,3 @@
-
-"use client"
-
-import React from "react"
-import {
-  FiSettings,
-  FiStar,
-  FiMessageSquare,
-  FiKey,
-  FiGlobe,
-  FiPackage,
-  FiDollarSign,
-  FiUsers,
-  FiGift,
-  // FiPalette,
-} from "react-icons/fi"
-import "./Settings.css"
-import AccountSection from "./AllSettingsPages/Account/Account"
-import PrivacySettings from "./AllSettingsPages/Privacy/Privacy"
-import DefaultSettings from "./AllSettingsPages/DefaultSetting/DefaultSetting"
-import RatingSettings from "./AllSettingsPages/RatingSetting/RatingSetting"
-import CustomBranding from "./AllSettingsPages/CustomBranding/CustomBranding"
-import PageTitle from "../../../layouts/PageTitle"
-
-const AccountSettings = () => {
-  const [selectedMenu, setSelectedMenu] = React.useState("Settings")
-
-  function renderSection() {
-    if (selectedMenu === "Settings") {
-      return <AccountSection />
-    } else if (selectedMenu === "Privacy & GDPR") {
-      return <PrivacySettings />
-    } else if (selectedMenu === "Default Setting") {
-      return <DefaultSettings />
-    } else if (selectedMenu === "Rating Settings") {
-      return <RatingSettings />
-    } else if (selectedMenu === "Custom Branding") {
-      return <CustomBranding />
-    } else {
-      return <div>Select a menu item to view details.</div>
-    }
-  }
-
-  const menuItems = [
-    { icon: <FiSettings />, label: "Settings" },
-    { icon: <FiStar />, label: "Privacy & GDPR" },
-    { icon: <FiMessageSquare />, label: "Default Setting" },
-    { icon: <FiKey />, label: "Rating Settings" },
-    { icon: <FiKey />, label: "Custom Branding" },
-    { icon: <FiGlobe />, label: "Custom Domains" },
-    { icon: <FiPackage />, label: "Integrations" },
-    { icon: <FiKey />, label: "API Keys" },
-    { icon: <FiPackage />, label: "Webhooks" },
-    { icon: <FiDollarSign />, label: "Plan & Usage" },
-    { icon: <FiDollarSign />, label: "Billing" },
-    { icon: <FiUsers />, label: "Team Management" },
-    { icon: <FiPackage />, label: "Upgrade" },
-    { icon: <FiGift />, label: "Referral Program" },
-  ]
-
-  return (
-    <div>
-      <PageTitle activeMenu="Settings" motherMenu="Home" />
-
-      <div className="AccountSettingUI-settings-container">
-        <div className="AccountSettingUI-settings-content">
-          <div className="AccountSettingUI-settings-main">
-            <div className="AccountSettingUI-settings-menu">
-              <nav>
-                {menuItems.map((item) => (
-                  <button
-                    key={item.label}
-                    onClick={() => setSelectedMenu(item.label)}
-                    className={`AccountSettingUI-menu-item ${selectedMenu === item.label ? "AccountSettingUI-active" : ""}`}
-                  >
-                    <span className="AccountSettingUI-menu-icon">{item.icon}</span>
-                    {item.label}
-                  </button>
-                ))}
-              </nav>
-            </div>
-            <div id="SectionsContainer" className="AccountSettingUI-settings-details">
-              {renderSection()}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-export default AccountSettings
-
-
-
-
-
-
-
-
-
 const UserModel = require("../../Model/UserSchema/UserSchema");
 const { sendOTP } = require("../../utils/mailer"); 
 const bcrypt = require("bcrypt");
@@ -465,16 +364,6 @@ module.exports = { RegisterUser, LoginUser, GetUsers, UpdateUser , DeleteUser , 
 
 
 
-
-
-
-
-
-
-
-
-
-
 const mongoose = require("mongoose")
 
 // Define the Custom Branding Schema
@@ -523,16 +412,6 @@ const userSchema = new mongoose.Schema(
 )
 
 module.exports = mongoose.model("User", userSchema)
-
-
-
-
-
-
-
-
-
-
 
 
 
