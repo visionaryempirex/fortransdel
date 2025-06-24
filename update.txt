@@ -1,417 +1,453 @@
-const UserModel = require("../../Model/UserSchema/UserSchema");
-const { sendOTP } = require("../../utils/mailer"); 
-const bcrypt = require("bcrypt");
-async function RegisterUser(req, res) {
-  try {
-    // Check if the email already exists
-    const {
-      userId,
-      userName,
-      companyName,
-      companyEmail,
-      companyLocation,
-      companyEmailPassword,
-      Status,
-      Limit,
-      Plan,
-      CreatedInterviews
-    } = req.body;
-    const existingUser = await UserModel.findOne({
-      companyEmail: req.body.companyEmail,
-    });
-    if (existingUser) {
-      return res.status(400).json({ Message: "Email already exists" });
-    }
 
-    // If email doesn't exist, create a new user
-    // const user = await UserModel.create(req.body);
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(companyEmailPassword, salt);
 
-    const newUser = new UserModel({
-      userId: userId,
-      userName: userName,
-      companyName: companyName,
-      companyEmail: companyEmail,
-      companyLocation: companyLocation,
-      companyEmailPassword: hashedPassword,
-      Status: Status,
-      Limit: Limit,
-      Plan: Plan,
-      CreatedInterviews:CreatedInterviews
-    });
-
-    await newUser.save();
-    return res
-      .status(200)
-      .json({ Message: "User Registered Successfully", newUser });
-  } catch (e) {
-    console.error("Error:", e);
-    return res.status(500).json({ Message: "Server Problem" });
-  }
-}
-// async function LoginUser(req, res) {
-//   try {
-//     const { companyEmail, companyEmailPassword } = req.body;
-
-//     // Check if the user exists
-//     const user = await UserModel.findOne({ companyEmail });
-
-//     if (!user) {
-//       return res.status(404).json({ Message: "User does not exist" });
-//     }
-
-//     // Compare hashed passwords
-//     const isPasswordValid = await bcrypt.compare(
-//       companyEmailPassword,
-//       user.companyEmailPassword
-//     );
-
-//     if (!isPasswordValid) {
-//       return res.status(401).json({ Message: "Invalid email or password" });
-//     }
-
-//     // Successful login
-//     res.status(200).json({ Message: "Login successful", user });
-//   } catch (error) {
-//     console.error("Error:", error);
-//     res.status(500).json({ Message: "Server problem" });
-//   }
-// }
-
-
-
-
-async function LoginUser(req, res) {
-  try {
-    const { companyEmail, companyEmailPassword } = req.body;
-
-    const user = await UserModel.findOne({ companyEmail });
-    if (!user) {
-      return res.status(404).json({ Message: "User does not exist" });
-    }
-
-    const isPasswordValid = await bcrypt.compare(companyEmailPassword, user.companyEmailPassword);
-    if (!isPasswordValid) {
-      return res.status(401).json({ Message: "Invalid email or password" });
-    }
-
-    // Generate OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit
-    const otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 mins from now
-
-    // Save OTP and expiry to user
-    user.otp = otp;
-    user.otpExpiry = otpExpiry;
-    await user.save();
-
-    // Send OTP via email
-    await sendOTP(companyEmail, otp);
-
-    return res.status(200).json({
-      Message: "OTP sent to your email",
-      userId: user._id,
-    });
-  } catch (error) {
-    console.error("Error:", error);
-    res.status(500).json({ Message: "Server problem" });
-  }
-}
-
-
-
-async function VerifyOTP(req, res) {
-  try {
-    const { userId, otp } = req.body;
-
-    const user = await UserModel.findById(userId);
-    if (!user || user.otp !== otp || user.otpExpiry < new Date()) {
-      return res.status(400).json({ Message: "Invalid or expired OTP" });
-    }
-
-    // OTP is valid — clear it and allow login
-    user.otp = null;
-    user.otpExpiry = null;
-    await user.save();
-
-    return res.status(200).json({ Message: "OTP verified. Login successful", user });
-  } catch (error) {
-    console.error("Error verifying OTP:", error);
-    res.status(500).json({ Message: "Server problem" });
-  }
-}
-
-
-
-
-async function GetUsers(req, res) {
-  try {
-    // Fetch all interviews from the database
-    const Users = await UserModel.find();
-
-    // Return the fetched interviews in the response
-    return res.status(200).json({
-      Message: "All Interviews Fetched Successfully",
-      Users,
-    });
-  } catch (e) {
-    console.error("Error:", e);
-    return res.status(500).json({ Message: "Server Problem" });
-  }
-}
-
-
-async function UpdateUser(req, res) {
-  try {
-    const { _id, ...updateData } = req.body; // Extract ID and other fields from the request body
-
-    // Validate ID
-    if (!_id) {
-      return res.status(400).json({ Message: "User ID is required" });
-    }
-
-    // Update the User with new data
-    const updatedUser = await UserModel.findByIdAndUpdate(
-      _id,
-      { $set: updateData },
-      { new: true } // Return the updated document
-    );
-
-    // Check if the User was found and updated
-    if (!updatedUser) {
-      return res.status(404).json({ Message: "User not found" });
-    }
-
-    return res.status(200).json({
-      Message: "User updated successfully",
-      updatedUser, // Return the updated document
-    });
-  } catch (error) {
-    console.error("Error updating User:", error);
-    return res
-      .status(500)
-      .json({ Message: "Server problem", Error: error.message });
-  }
-}
-
-const updateFullUser = async (req, res) => {
-  try {
-    const { _id, companyEmailPassword, ...updateData } = req.body;
-
-    // Validate ID
-    if (!_id) {
-      return res.status(400).json({ Message: "User ID is required" });
-    }
-
-    // Check if the user exists
-    const existingUser = await UserModel.findById(_id);
-    if (!existingUser) {
-      return res.status(404).json({ Message: "User not found" });
-    }
-
-    // If password is provided, hash it
-    if (companyEmailPassword) {
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(companyEmailPassword, salt);
-      updateData.companyEmailPassword = hashedPassword; // Add the hashed password to the update data
-    }
-
-    // Update the entire user object with the provided data
-    const updatedUser = await UserModel.findByIdAndUpdate(
-      _id,
-      { $set: updateData }, // Using $set to apply changes only to the provided fields
-      { new: true } // Return the updated document
-    );
-
-    // Return success response
-    return res.status(200).json({
-      Message: "User updated successfully",
-      user: updatedUser,
-    });
-  } catch (error) {
-    console.error("Error updating user:", error);
-    return res.status(500).json({
-      Message: "Failed to update user",
-      Error: error.message,
-    });
-  }
-};
-
-
-async function GetUserById(req, res) {
-  try {
-    const { userId } = req.body; // Extract userId from request body
-
-    // Validate userId
-    if (!userId) {
-      return res.status(400).json({ Message: "User ID is required" });
-    }
-
-    // Find the user by userId field
-    const User = await UserModel.findOne({ userId });
-
-    // Check if candidate exists
-    if (!User) {
-      return res.status(404).json({ Message: "User not found" });
-    }
-
-    return res.status(200).json({
-      Message: "User found successfully",
-      User, // Return the found user data
-    });
-  } catch (error) {
-    console.error("Error fetching user:", error);
-    return res.status(500).json({ Message: "Server problem", Error: error.message });
-  }
-}
-
-async function GetUserByEmail(req, res) {
-  try {
-    const { companyEmail } = req.body; // Extract companyEmail from request body
-
-    // Validate companyEmail
-    if (!companyEmail) {
-      return res.status(400).json({ Message: "companyEmail is required" });
-    }
-
-    // Find the user by companyEmail field
-    const user = await UserModel.findOne({ companyEmail });
-
-    // Check if user exists
-    if (!user) {
-      return res.status(404).json({ Message: "User not found" });
-    }
-
-    return res.status(200).json({
-      Message: "User found successfully",
-      User: user, // Return the found user data
-    });
-  } catch (error) {
-    console.error("Error fetching user:", error);
-    return res.status(500).json({ Message: "Server problem", Error: error.message });
-  }
-}
-
-async function GetUserByUserId(req, res) {
-  try {
-    const { userId } = req.body; // Extract companyEmail from request body
-
-    // Validate companyEmail
-    if (!userId) {
-      return res.status(400).json({ Message: "companyEmail is required" });
-    }
-
-    // Find the user by companyEmail field
-    const user = await UserModel.findById(userId);
-
-    // Check if user exists
-    if (!user) {
-      return res.status(404).json({ Message: "User not found" });
-    }
-
-    return res.status(200).json({
-      Message: "User found successfully",
-      User: user, // Return the found user data
-    });
-  } catch (error) {
-    console.error("Error fetching user:", error);
-    return res.status(500).json({ Message: "Server problem", Error: error.message });
-  }
-}
-
-
-
-async function DeleteUser(req, res) {
-  try {
-    const { _id } = req.body; // Get the ID from the request body
-
-    // Validate ID
-    if (!_id) {
-      return res.status(400).json({ Message: "User ID is required" });
-    }
-
-    // Log the ID for debugging
-    console.log("Deleting User with ID:", _id);
-
-    // Delete the specific invite by ID
-    const deletedUser = await UserModel.findByIdAndDelete(_id);
-
-    // Check if the User was found and deleted
-    if (!deletedUser) {
-      return res.status(404).json({ Message: "Invite not found" });
-    }
-
-    return res.status(200).json({
-      Message: "User deleted successfully",
-      deletedUser: deletedUser,
-    });
-  } catch (error) {
-    console.error("Error deleting Invite:", error);
-    return res
-      .status(500)
-      .json({ Message: "Server problem", Error: error.message });
-  }
-  }
-
-module.exports = { RegisterUser, LoginUser, GetUsers, UpdateUser , DeleteUser , updateFullUser ,GetUserById, GetUserByEmail, GetUserByUserId , VerifyOTP };
-
-
-
-
-
-
-
-
-
-
-const mongoose = require("mongoose")
-
-// Define the Custom Branding Schema
-const customBrandingSchema = new mongoose.Schema({
-  id: { type: String, required: true },
-  companyName: { type: String },
-  interviewTitle: { type: String },
-  brandColor: { type: String, default: "#5563FF" },
-  logoUrl: { type: String },
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now },
-})
-
-// Define the User Schema
-const userSchema = new mongoose.Schema(
-  {
-    userId: {
-      type: String,
-    },
-    userName: {
-      type: String,
-    },
-    companyName: {
-      type: String,
-    },
-    companyEmail: {
-      type: String,
-    },
-    companyLocation: {
-      type: String,
-    },
-    companyEmailPassword: {
-      type: String,
-    },
-    otp: { type: String },
-    otpExpiry: { type: Date },
-    Status: { type: String },
-    Limit: { type: Number },
-    Plan: { type: String },
-    CreatedInterviews: { type: Number },
-    customBrandings: [customBrandingSchema], // Add this field for custom brandings
-  },
-  {
-    timestamps: true,
-  },
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+import pdfplumber
+import docx
+import easyocr
+import fitz  # PyMuPDF
+from PIL import Image
+import shutil
+import os
+from tempfile import NamedTemporaryFile
+import re
+import json
+from dotenv import load_dotenv
+from groq import Groq
+
+load_dotenv()
+
+app = FastAPI()
+
+# 👇 Yahan origin set karo jahan se request aa rahi hai
+origins = [
+    "http://localhost:5173",  # React local dev server
+    "http://127.0.0.1:5173",
+    "https://careerflix.com",  # Production domain if deployed
+]
+
+# 👇 Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # Ya ["*"] for all origins (not recommended in prod)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-module.exports = mongoose.model("User", userSchema)
+# DOCX text extraction
+def extract_text_from_docx(file_path):
+    try:
+        doc = docx.Document(file_path)
+        return "\n".join([para.text for para in doc.paragraphs])
+    except Exception as e:
+        return f"[DOCX extraction error: {e}]"
+
+# Normal text PDF
+def extract_text_from_pdf(file_path):
+    text = ""
+    try:
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text and page_text.strip():
+                    text += page_text + "\n"
+        if not text.strip():
+            text = extract_text_from_scanned_pdf(file_path)
+    except Exception as e:
+        text = f"[PDF extraction error: {e}]"
+    return text
+
+# OCR for scanned PDF using EasyOCR
+def extract_text_from_scanned_pdf(file_path):
+    text = ""
+    try:
+        doc = fitz.open(file_path)
+        reader = easyocr.Reader(['en'])  # Add 'ur' if needed
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            pix = page.get_pixmap()
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            with NamedTemporaryFile(delete=False, suffix=".png") as img_file:
+                img.save(img_file.name, format="PNG")
+                result = reader.readtext(img_file.name, detail=0)
+                text += "\n".join(result) + "\n"
+            os.remove(img_file.name)
+    except Exception as e:
+        text = f"[OCR failed using EasyOCR: {e}]"
+    return text
+
+# Prompt for AI model
+def create_prompt(cv_text, jd_text):
+    return f"""
+You are an expert AI resume analyzer and ATS system. You will:
+
+1. Extract all relevant structured data from the resume, including:
+   - Personal information (name, contact, location)
+   - Summary or objective statement
+   - Skills (technical, soft skills)
+   - Education (degrees, institutions, dates)
+   - Work experience (job titles, companies, durations, responsibilities)
+   - Certifications and trainings
+   - Projects or notable achievements
+   - Languages, tools, software proficiencies
+   - Any other relevant sections
+
+2. Thoroughly compare the extracted resume data against the given Job Description (JD).
+
+3. Provide an **extensive ATS analysis report** containing:
+
+  - **Overall relevancy score (0 to 100)**
+  - **Skills Analysis:**
+    - List of matching skills
+    - List of missing skills that the JD requires but are absent or weak in the resume
+    - For each missing skill, explain how critical it is based on JD emphasis
+    - Highlight transferable or related skills that partially satisfy JD requirements
+    - Strengths and weaknesses in skill set matching the JD
+
+  - **Experience Analysis:**
+    - Match job roles and responsibilities with JD requirements
+    - Highlight relevant experiences and gaps
+    - Explain the depth of experience and seniority compared to JD
+    - Mention any leadership or project management experience related to JD
+    - Pros and cons of the candidate’s experience for the role
+
+  - **Education Analysis:**
+    - Match educational qualifications with JD required degrees or certifications
+    - Mention relevance of institution and courses if applicable
+    - Highlight missing or extra education qualifications
+    - Pros and cons regarding education fit
+
+  - **Certifications & Training:**
+    - Relevant certifications aligned with JD
+    - Missing certifications that are valuable for the JD
+    - Impact of certifications on candidate’s suitability
+
+  - **Additional Observations:**
+    - Soft skills match (if any mentioned)
+    - Language proficiency if relevant
+    - Any red flags or positive standout points
+    - Suggestions for improvement
+
+4. Output ONLY JSON in this exact format:
+
+json
+{{
+  "extracted_data": {{
+    "personal_info": {{}},
+    "summary": "...",
+    "skills": [...],
+    "education": [...],
+    "experience": [...],
+    "certifications": [...],
+    "languages": [...],
+    "projects": [...]
+  }},
+  "ats_analysis": {{
+    "overall_relevancy_score": 0-100,
+    "skills_analysis": {{
+      "matching_skills": [...],
+      "missing_skills": [...],
+      "skill_strengths": "...",
+      "skill_weaknesses": "...",
+      "transferable_skills": [...]
+    }},
+    "experience_analysis": {{
+      "matched_roles": [...],
+      "experience_gaps": "...",
+      "seniority_level": "...",
+      "leadership_experience": "...",
+      "pros": [...],
+      "cons": [...]
+    }},
+    "education_analysis": {{
+      "matching_qualifications": [...],
+      "missing_qualifications": [...],
+      "pros": [...],
+      "cons": [...]
+    }},
+    "certifications_analysis": {{
+      "relevant_certifications": [...],
+      "missing_certifications": [...],
+      "impact": "..."
+    }},
+    "additional_observations": {{
+      "soft_skills_match": "...",
+      "language_proficiency": "...",
+      "red_flags": [...],
+      "standout_points": [...],
+      "improvement_suggestions": [...]
+    }}
+  }}
+}}
+
+Resume Text:
+\"\"\"
+{cv_text}
+\"\"\"
+
+Job Description:
+\"\"\"
+{jd_text}
+\"\"\"
+"""
+
+# JSON Extractor Utility
+def extract_json_from_text(text):
+    json_match = re.search(r"\{[\s\S]*\}", text)
+    if json_match:
+        try:
+            return json.loads(json_match.group())
+        except json.JSONDecodeError:
+            return None
+    return None
+
+# Groq AI handler
+def get_ai_response(prompt):
+    client = Groq(
+        api_key=os.getenv("GROQ_API_KEY"),
+    )
+
+    llm = client.chat.completions.create(
+        model="llama3-8b-8192",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.2
+    )
+
+    response = llm.choices[0].message.content
+    return response
+
+# Main Endpoint
+@app.post("/analyze-resume/")
+async def analyze_resume(
+    file: UploadFile = File(...),
+    jd: str = Form(...)
+):
+    suffix = os.path.splitext(file.filename)[1].lower()
+    if suffix not in [".pdf", ".docx"]:
+        raise HTTPException(status_code=400, detail="Only PDF and DOCX files are supported.")
+
+    with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+        shutil.copyfileobj(file.file, temp_file)
+        temp_file_path = temp_file.name
+
+    try:
+        if suffix == ".pdf":
+            extracted_text = extract_text_from_pdf(temp_file_path)
+        elif suffix == ".docx":
+            extracted_text = extract_text_from_docx(temp_file_path)
+    finally:
+        os.remove(temp_file_path)
+
+    prompt = create_prompt(extracted_text, jd)
+    response = get_ai_response(prompt)
+    enhanced_json = extract_json_from_text(response)
+
+    if not enhanced_json:
+        return {"error": "Invalid JSON format returned from AI", "raw_response": response}
+
+    return {
+        "message": "Resume analyzed successfully.",
+        "data": enhanced_json
+    }
+
+# Prompt to enhance and complete CV JSON
+def create_enhancement_prompt(cv_text):
+    return f"""
+You are an expert AI resume enhancer.
+
+Take the following extracted resume text and:
+1. Generate a complete, structured JSON resume in an ATS-friendly format.
+2. Add and fill any missing sections like summary, skills, certifications, etc., even if not present in the text.
+3. Improve the language and structure for professionalism and clarity.
+4. If any section (e.g., projects, achievements, awards, publications, volunteer_work) is missing in the extracted text, do NOT leave it empty. Instead, generate relevant, plausible, and helpful content based on the extracted resume information to strengthen the resume.
+5. If a section exists in the original JSON but is missing from the extracted resume text, generate suitable content for that section using your understanding of the resume as a whole and in almost of resumes there are not   "awards": [],
+    "publications": [], and  "certifications": [], so please do that please create the content for it in the response if not in the extracted resume text.
+
+Output ONLY in the following JSON format. Add any additional sections you find relevant to make the resume better and ATS-friendly.
+
+{{
+  "personal_info": {{
+    "full_name": "John Deo",
+    "first_name": "John",
+    "last_name": "Deo",
+    "profile_image": "https://static.vecteezy.com/system/resources/previews/000/439/863/large_2x/vector-users-icon.jpg",
+    "position": "",
+    "discipline": "",
+    "sub_discipline": "",
+    "technical_qualification": "",
+    "experience": "",
+    "portfolio": "https://yourportfolio.com",
+    "video_intro": "",
+    "email": "example@email.com",
+    "phone": "+92-300-1234567",
+    "nationality": "",
+    "current_country": "",
+    "country": "Pakistan",
+    "city": "Karachi",
+    "visa_status": "",
+    "availability": "",
+    "country_code": "+92",
+    "linkedin": "https://linkedin.com/in/your-profile",
+    "github": "https://github.com/your-profile",
+    "website": "",
+    "address": ""
+  }},
+  "summary": "A passionate software engineer with 3 years of experience specializing in web and mobile app development. Skilled in front-end and back-end technologies with a strong focus on user-centric design and problem-solving.",
+  "experience_overview": {{
+    "total_experience_years": "3",
+    "total_experience_months": "36",
+    "gcc_experience_years": "0",
+    "gcc_experience_months": "0",
+    "other_experience_years": "3",
+    "other_experience_months": "36"
+  }},
+  "experience": [
+    {{
+      "title": "Software Engineer",
+      "company": "ABC Tech",
+      "location": "Karachi, Pakistan",
+      "start_date": "2021-06",
+      "end_date": "Present",
+      "description": "Developed responsive websites and mobile apps. Collaborated with designers and product managers to deliver high-quality solutions."
+    }}
+  ],
+  "education": [
+    {{
+      "degree": "Intermediate in Computer Science",
+      "institution": "XYZ College",
+      "location": "Karachi, Pakistan",
+      "start_year": "2019",
+      "end_year": "2021"
+    }}
+  ],
+  "skills": [
+    "HTML",
+    "CSS",
+    "JavaScript",
+    "React",
+    "Node.js",
+    "MongoDB",
+    "Express.js",
+    "WordPress",
+    "UI/UX Design"
+  ],
+  "tools_technologies": [
+    "VS Code",
+    "Figma",
+    "Git",
+    "Postman",
+    "Photoshop",
+    "Tailwind CSS",
+    "Bootstrap"
+  ],
+  "languages": [
+    {{
+      "language": "English",
+      "level": "Intermediate"
+    }},
+    {{
+      "language": "Urdu",
+      "level": "Native"
+    }}
+  ],
+  "projects": [
+    {{
+      "title": "CRM Dashboard",
+      "description": "Created a full-featured CRM system with task management, calendar alerts, and real-time updates.",
+      "technologies_used": ["React", "Tailwind CSS", "Firebase", "SweetAlert"],
+      "link": ""
+    }}
+  ],
+  "certifications": [
+    {{
+      "title": "Full Stack Web Development",
+      "issuer": "Saylani Institute",
+      "year": "2023"
+    }}
+  ],
+  "achievements": [
+    "Built and launched 10+ client websites.",
+    "Recognized as Top Rated Freelancer on XYZ platform."
+  ],
+  "awards": [],
+  "publications": [],
+  "volunteer_work": [
+    {{
+      "role": "Web Developer Volunteer",
+      "organization": "Local NGO",
+      "description": "Developed their event website and donation portal."
+    }}
+  ]
+}}
+
+Resume Text:
+\"\"\"
+{cv_text}
+\"\"\"
+"""
+
+# Enhance CV API endpoint
+@app.post("/enhance-cv/")
+async def enhance_cv(file: UploadFile = File(...)):
+    suffix = os.path.splitext(file.filename)[1].lower()
+    if suffix not in [".pdf", ".docx"]:
+        raise HTTPException(status_code=400, detail="Only PDF and DOCX files are supported.")
+
+    with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+        shutil.copyfileobj(file.file, temp_file)
+        temp_file_path = temp_file.name
+
+    try:
+        if suffix == ".pdf":
+            extracted_text = extract_text_from_pdf(temp_file_path)
+        elif suffix == ".docx":
+            extracted_text = extract_text_from_docx(temp_file_path)
+    finally:
+        os.remove(temp_file_path)
+
+    prompt = create_enhancement_prompt(extracted_text)
+    response = get_ai_response(prompt)
+    enhanced_json = extract_json_from_text(response)
+
+    if not enhanced_json:
+        return {"error": "Invalid JSON format returned from AI", "raw_response": response}
+
+    return {
+        "message": "CV enhanced successfully.",
+        "enhanced_cv": enhanced_json
+    }
+
+
+ # ///////////////////////////////////////////////////////////////////////////////////////////////// response from ai ///////////////////////////////////////////////////
+
+def get_ai_response2(prompt):
+    # Your existing implementation
+    client = Groq(
+        api_key=os.getenv("GROQ_API_KEY"),
+    )
+
+    llm = client.chat.completions.create(
+        model="llama3-8b-8192",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.2
+    )
+
+    response = llm.choices[0].message.content
+    return response
+
+@app.post("/GetAiResponse/")
+async def GetAiResponse(
+    UserPrompt: str = Form(...), 
+):
+
+    response2 = get_ai_response2(UserPrompt)
+
+    return {
+        "message": "Response Generated",
+        "data": response2
+    }
 
 
 
@@ -422,23 +458,13 @@ module.exports = mongoose.model("User", userSchema)
 
 
 
-
-
-
-const express = require("express");
-const Router = express.Router();
-const userController = require("../../Controller/UserControllers/UserController");
-
-Router.post("/Register", userController.RegisterUser);
-Router.post("/Login", userController.LoginUser);
-Router.get("/GetUsers", userController.GetUsers);
-Router.put("/UpdateUser", userController.UpdateUser);
-Router.post("/DeleteUser", userController.DeleteUser);
-Router.put("/UpdateFullUser", userController.updateFullUser);
-Router.post("/GetUserById", userController.GetUserById);
-Router.post("/GetUserByEmail", userController.GetUserByEmail);
-Router.post("/GetUserByUserId", userController.GetUserByUserId);
-Router.post("/VerifyOTP", userController.VerifyOTP);
-
-module.exports = Router;
-
+fastapi
+uvicorn
+python-dotenv
+pdfplumber
+python-docx
+easyocr
+pymupdf
+Pillow
+python-multipart
+groq
